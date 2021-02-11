@@ -1,0 +1,56 @@
+---
+version: 2.1
+jobs:
+  build_and_deploy:
+    # working_directory: ~/mern-starter # directory where steps will run
+
+    docker:
+      - image: circleci/node:10.16.3
+
+    steps:
+      - checkout
+
+      - run:
+          name: update-npm
+          command: 'sudo npm install -g npm@latest'
+
+      - restore_cache:  # special step to restore the dependency cache
+          # Read about caching dependencies:
+          # https://circleci.com/docs/2.0/caching/
+          key: dependency-cache-{{ checksum "yarn.lock" }}
+
+      - run:
+          name: install deps
+          command: yarn
+
+      - save_cache:  # special step to save the dependency cache
+          key: dependency-cache-{{ checksum "yarn.lock" }}
+          paths:
+            - ./node_modules
+
+      - run:
+          name: build
+          command: yarn build
+
+      - run:
+          name: assume dev role and deploy to S3
+          command: |
+            sudo apt-get update -q && sudo apt-get install -yqq python3-pip
+            python3 -m pip install awscli -q --disable-pip-version-check
+            cd && git clone --single-branch --depth=1 \
+                        git@github.com:YourMD/devops-infrastructure.git tf
+            cd tf && source ci/includes.sh
+            eval $(ci/awsp.sh cci-${ENV:-dev})
+            cd && cd project/build
+            aws s3 sync . s3://build-radiator.dev.your.md
+
+workflows:
+  version: 2
+  docker:
+    jobs:
+      - build_and_deploy:
+          filters:
+            branches:
+              only:
+                - master
+
